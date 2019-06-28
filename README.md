@@ -7,7 +7,7 @@ client: Desktop
 service: Microsoft Information Protection
 ---
 
-# MipSdk-Dotnet-File-Quickstart
+# MipSdk-Dotnet-File-ServicePrincipalAuth
 
 This sample application demonstrates using the Microsoft Information Protection SDK .NET wrapper to label and read a label from a file. 
 
@@ -46,37 +46,99 @@ Authentication against the Azure AD tenant requires creating a native applicatio
 1. Go to https://portal.azure.com and log in as a global admin.
 > Your tenant may permit standard users to register applications. If you aren't a global admin, you can attempt these steps, but may need to work with a tenant administrator to have an application registered or be granted access to register applications.
 2. Click Azure Active Directory, then **App Registrations** in the menu blade.
-3. Click **View all applications**
-4. Click **New Applications Registration**
-5. For name, enter **MipSdk-Sample-Apps**
-6. Set **Application Type** to **Native**
-7. For Redirect URI, enter **mipsdk-auth-sample://authorize**   
-  > Note: This can be anything you'd like, but should be unique in the tenant.
-8. Click **Create**
+3. Click **New Registration**
+4. Under *Supported account types* select **Accounts in this directory only**
+5. Under *Redirect URI* select **Public client**
+6. For *Redirect URI*, enter **mipsdk-auth-sample://authorize**   
+  > Note: This can be anything you'd like.
+8. Click **Register**
 
-The **Registered app** blade should now be displayed.
+The registered app should now be displayed.
 
-1. Click **Settings**
-2. Click **Required Permissions**
-3. Click **Add**
-4. Click **Select an API**
-5. Select **Microsoft Rights Management Services** and click **Select**
-6. Under **Select Permissions** select **Create and access protected content for users**
-7. Click **Select** then **Done**
-8. Click **Add**
-9. Click **Select an API**
-10. In the search box, type **Microsoft Information Protection Sync Service** then select the service and click **Select**
-11. Under **Select Permissions** select **Read all unified policies a user has access to.**
-12. Click **Select** then **Done**
-13. In the **Required Permissions** blade, click **Grant Permissions** and confirm.
+1. Click **API permissions**.
+2. Click **Add a permission**.
+3. Select **Microsoft APIs**.
+4. Select **Azure Rights Management Services**.
+5. Click **Application permissions**.
+6. Under **Select Permissions** select **Content.DelegatedWriter** and **Content.Writer**.
+7. Click **Add permissions**.
+8. Again, click **Add a permission**.
+9. Select **APIs my organization uses**.
+10. In the search box, type **Microsoft Information Protection Sync Service** then select the service.
+11. Click **Application permissions**.
+12. Select **UnifiedPolicy.Tenant.Read**.
+13. Click **Add permissions**.
+14. In the **API permissions** blade, click **Grant admin consent for <Your Tenant>** and confirm.
 
-### Update Client ID, RedirectURI, and Application Name
+### Generate a client secret
 
-1. Open **app.config**.
-2. Replace **YOUR CLIENT ID** with the client ID copied from the AAD App Registration.
-3. Replace **YOUR REDIRECT URI** with the Redirect URI copied from the AAD App Registration.
-4. Replace **YOUR APP NAME** with the friendly name for your application.
-5. Replace **YOUR APP VERSION** with the version of your application.
+If you'd prefer to use certificate based auth, skip ahead to [Generate a client certificate](#Generate-a-client-certificate).
+
+1. In the Azure AD application regisration menu, find the application you registered.
+2. Select **Certificates and secrets**.
+3. Click **New client secret**.
+4. For the description, enter "MIP SDK Test App".
+5. Select **In 1 year** for expiration
+  > This can be 1 year, 2 years, or never.
+6. Click **Add**.
+
+The secret will be displayed in the portal. **Copy the secret now, as it will disappear after page refresh.**
+
+  > Storing client secrets in plaintext isn't a best practice
+
+### Generate a client certificate
+
+This step generates a self-signed certificate, writes the thumbprint to the console, then exports the certificate to a cert file. If you used a [client secret](#Generate-a-client-secret), skip ahead to [update application configuration settings](#Update-application-configuration-settings).
+
+Run the following PowerShell script:
+
+```powershell
+mkdir c:\temp
+cd c:\temp
+
+#Generate the certificate
+$cert = New-SelfSignedCertificate -Subject "CN=MipSdkFileApiDotNet" -CertStoreLocation "Cert:\CurrentUser\My"  -KeyExportPolicy Exportable -KeySpec Signature
+$cert.Thumbprint
+$certFile = (Get-ChildItem -Path Cert:\CurrentUser\my\$($cert.thumbprint))
+Export-Certificate -cert $cert -FilePath cba.cer -Type:CERT
+
+# take the CER file and upload to AAD App Registration portal
+```
+
+### Import the certificate to the application registration
+
+In this step, the public certificate generated in the previous section will be imported to the application registration.
+
+1. In the Azure AD application regisration menu, find the application you registered.
+2. Select **Certificates and secrets**
+3. Click **Upload certificate**
+4. Browse to the CER file generated in the previous section, then click **Add**
+
+The certificate will appear in the list, displaying the thumbprint and validity period.
+
+### Update application configuration settings
+
+1. In Visual Studio open **app.config**.
+2. Replace **YOUR CLIENT ID** with the application ID copied from the AAD App Registration **Overview** blade.
+3. Replace **YOUR REDIRECT URI** with the Redirect URI copied from the AAD App Registration **Authentication** blade.
+4. Replace **YOUR APP NAME** with the friendly name for your application. This will appear in logging and AIP Analytics.
+5. Replace **YOUR APP VERSION** with the version of your application. This will appear in logging and AIP Analytics.
+6. If you set the application to use *client secret* for auth, change **YOUR CLIENT SECRET** to the secret you copied earlier from **Certificates & secrets** and set **DoCertAuth** to **false**.
+7. If you intend to use a certificate, set change **YOUR CERTIFICATE THUMBPRINT** to the thumbprint of the certificate displayed in the **Certificates & secrets** section and set **DoCertAuth** to **true**.
+8. Replace **YOUR TENANT NAME** with the name of your Azure Active Directory Tenant (i.e. Contoso.com, or Contoso.onmicrosoft.com)
+
+```xml
+  <appSettings>
+    <add key="ida:ClientId" value="YOUR CLIENT ID" />
+    <add key="ida:RedirectUri" value="YOUR REDIRECT URI FROM AAD APP REGISTRATION" />
+    <add key="ida:CertThumbprint" value="YOUR CERTIFICATE THUMBPRINT" />
+    <add key="ida:ClientSecret" value="YOUR CLIENT SECRET"/>
+    <add key="ida:DoCertAuth" value="false"/>
+    <add key="ida:Tenant" value="YOUR TENANT NAME"/>
+    <add key="app:Name" value="Test App" />
+    <add key="app:Version" value="1.0.0" />
+  </appSettings>
+```
 
 ## Run the Sample
 
