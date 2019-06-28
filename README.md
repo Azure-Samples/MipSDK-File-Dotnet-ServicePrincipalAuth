@@ -9,19 +9,17 @@ service: Microsoft Information Protection
 
 # MipSdk-Dotnet-File-ServicePrincipalAuth
 
-This sample application demonstrates using the Microsoft Information Protection SDK .NET wrapper to label and read a label from a file. 
+This sample application demonstrates using the Microsoft Information Protection SDK .NET wrapper to label and read a label from a file using **service principal authentication**. The sample provides steps and code or both client secret and certificate-based authentication.
 
-This sample illustrates basic SDK functionality where it:
+Beyond the authentication flow, it demonstrates:
 
-- Obtains the list of labels for the user
-- Prompts to input one of the label IDs
-- Prompts for a file path of a file to label
-- Applies the label
-- Reads the label from the document and displays metadata
+- Fetching labels for the tenant
+- Applying a label to a file
+- Reading a label from a file
 
 ## Summary
 
-This sample application illustrates using the MIP File API to list labels, apply a label, then read the label. All SDK actions are implemented in **action.cs**. 
+This sample application illustrates using the MIP File API to list labels, apply a label, then read the label as a service principal identity. All SDK actions are implemented in **action.cs**. All auth behaviour is implemented in **AuthDelegateImplementation.cs**.
 
 ## Getting Started
 
