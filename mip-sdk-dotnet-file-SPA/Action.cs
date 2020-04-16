@@ -121,7 +121,7 @@ namespace MipSdkDotNetQuickstart
            mipContext = MIP.CreateMipContext(appInfo, "mip_data", LogLevel.Trace, null, null);
 
             // Initialize file profile settings to create/use local state.                
-            var profileSettings = new FileProfileSettings(mipContext, CacheStorageType.OnDiskEncrypted, authDelegate, new ConsentDelegateImplementation());
+            var profileSettings = new FileProfileSettings(mipContext, CacheStorageType.OnDiskEncrypted, new ConsentDelegateImplementation());
 
             // Use MIP.LoadFileProfileAsync() providing settings to create IFileProfile. 
             // IFileProfile is the root of all SDK operations for a given application.
@@ -149,7 +149,7 @@ namespace MipSdkDotNetQuickstart
 
             // Create file settings object. Passing in empty string for the first parameter, engine ID, will cause the SDK to generate a GUID.
             // Locale settings are supported and should be provided based on the machine locale, particular for client applications.
-            var engineSettings = new FileEngineSettings("", "", "en-US")
+            var engineSettings = new FileEngineSettings("", authDelegate, "", "en-US")
             {
                 // Provide the identity for service discovery.
                 Identity = identity
