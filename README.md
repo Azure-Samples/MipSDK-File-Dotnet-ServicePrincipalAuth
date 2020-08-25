@@ -54,7 +54,7 @@ Authentication against the Azure AD tenant requires creating a native applicatio
 
 The registered app should now be displayed.
 
-### App API Permissions 
+### Add API Permissions 
 
 1. Click **API permissions**.
 2. Click **Add a permission**.
@@ -76,7 +76,7 @@ The registered app should now be displayed.
 1. Select **Authentication**.
 2. Select **Add a platform**.
 3. Select **Mobile and desktop applications**
-4. Select the default MSAL redirect URI, which should look similar to **msal35068b6b-847c-4a50-bf06-760a08c24b32://auth**.
+4. Select the default native client redirect URI, which should look similar to **https://login.microsoftonline.com/common/oauth2/nativeclient**.
 5. Select **configure** and be sure to save and changes if required. 
 
 ### Generate a client secret
@@ -137,7 +137,7 @@ The certificate will appear in the list, displaying the thumbprint and validity 
 
 ```xml
   <appSettings>
-    <add key="ida:ClientId" value="YOUR CLIENT ID" />    
+    <add key="ida:ClientId" value="YOUR CLIENT ID" />
     <add key="ida:CertThumbprint" value="YOUR CERTIFICATE THUMBPRINT" />
     <add key="ida:ClientSecret" value="YOUR CLIENT SECRET"/>
     <add key="ida:DoCertAuth" value="false"/>
