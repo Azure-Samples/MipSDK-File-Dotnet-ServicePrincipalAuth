@@ -27,32 +27,34 @@
 
 using System;
 using System.Configuration;
-using Microsoft.InformationProtection;
-using Microsoft.IdentityModel.Clients.ActiveDirectory;
 using System.Security.Cryptography.X509Certificates;
 using System.Linq;
-using System.Windows.Forms;
+
+using Microsoft.InformationProtection;
+using Microsoft.Identity.Client;
+
+/*
+ * Microsoft Authentication Library implementation and details sourced from this sample by the Azure AD team. 
+ * https://github.com/Azure-Samples/active-directory-dotnetcore-daemon-v2
+ * 
+ * If experiencing issues with authentication, please review and test that sample application. 
+ */
 
 namespace MipSdkDotNetQuickstart
 {
     public class AuthDelegateImplementation : IAuthDelegate
     {
-        // Set the redirect URI from the AAD Application Registration.
-        private static readonly string redirectUri = ConfigurationManager.AppSettings["ida:RedirectUri"];
-
         // Fetch cert thumbprint, appkey, and DoCertAuth flag from app.config
         private static readonly string certThumb = ConfigurationManager.AppSettings["ida:CertThumbprint"];
         private static readonly bool doCertAuth = Convert.ToBoolean(ConfigurationManager.AppSettings["ida:DoCertAuth"]);
         private static readonly string clientSecret = ConfigurationManager.AppSettings["ida:ClientSecret"];
 
+        // We use the tenant ID to append to the authority, as we need this as a hint to find the correct tenant.        
+        private static readonly string tenant = ConfigurationManager.AppSettings["ida:TenantGuid"];
 
-        // Fetch tenant name from app.config
-        // We use the tenant ID to append to the authority, as we need this as a hint to find the correct tenant.
-        // Using the common endpoint without tenant throws an exception. 
-        private static readonly string tenant = ConfigurationManager.AppSettings["ida:Tenant"];
+        private ApplicationInfo appInfo;
 
-        private ApplicationInfo appInfo;        
-        private TokenCache tokenCache = new TokenCache();
+        IConfidentialClientApplication _app;
         
         public AuthDelegateImplementation(ApplicationInfo appInfo)
         {
@@ -73,30 +75,46 @@ namespace MipSdkDotNetQuickstart
         /// <returns>The OAuth2 token for the user</returns>
         public string AcquireToken(Identity identity, string authority, string resource, string claim)
         {
-            // Append tenant to authority.
-            authority = string.Format("{0}/{1}", authority, tenant);
-
-            AuthenticationContext authContext = new AuthenticationContext(authority, tokenCache);
             AuthenticationResult result;
+
+            var authorityUri = new Uri(authority);
+            authority = string.Format("https://{0}/{1}", authorityUri.Host, tenant);
 
             if (doCertAuth)
             {
-                Console.WriteLine("Performing certificate based auth with {0}", certThumb);
-
-                // Read cert from local machine
-                var cert = ReadCertificateFromStore(certThumb);
-                // Use cert to build ClientAssertionCertificate
-                var certcred = new ClientAssertionCertificate(appInfo.ApplicationId, cert);
-                result = authContext.AcquireTokenAsync(resource, certcred).Result;
+                // Build ConfidentialClientApplication using certificate.                
+                _app = ConfidentialClientApplicationBuilder.Create(appInfo.ApplicationId)
+                    .WithCertificate(ReadCertificateFromStore(certThumb))
+                    .WithAuthority(new Uri(authority))                    
+                    .Build();
             }
 
             else
             {
-                Console.WriteLine("Performing client secret based auth.");
-                var clientCred = new ClientCredential(appInfo.ApplicationId, clientSecret);
-                result = authContext.AcquireTokenAsync(resource, clientCred).Result;
-            }            
-            // Return the token. The token is sent to the resource.
+                // Build ConfidentialClientApplication using app secret                
+                _app = ConfidentialClientApplicationBuilder.Create(appInfo.ApplicationId)
+                     .WithClientSecret(clientSecret)
+                     .WithAuthority(new Uri(authority))
+                     .Build();
+            }
+
+            // Append .default to the resource passed in to AcquireToken().
+            string[] scopes = new string[] { resource[resource.Length - 1].Equals('/') ? $"{resource}.default" : $"{resource}/.default" };
+
+            try
+            {
+                result = _app.AcquireTokenForClient(scopes).ExecuteAsync().Result; 
+            }
+            catch (MsalServiceException ex) when (ex.Message.Contains("AADSTS70011"))
+            {
+                // Invalid scope. The scope has to be of the form "https://resourceurl/.default"
+                // Mitigation: change the scope to be as expected
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("Scope provided is not supported");
+                Console.ResetColor();
+                return null;
+            }
+
             return result.AccessToken;
         }
 
