@@ -54,20 +54,27 @@ Authentication against the Azure AD tenant requires creating a native applicatio
 
 The registered app should now be displayed.
 
+<<<<<<< Updated upstream
 1. Click **API permissions**.
 2. Click **Add a permission**.
+=======
+### Add API Permissions 
+
+1. Select **API permissions**.
+2. Select **Add a permission**.
+>>>>>>> Stashed changes
 3. Select **Microsoft APIs**.
 4. Select **Azure Rights Management Services**.
-5. Click **Application permissions**.
+5. Select **Application permissions**.
 6. Under **Select Permissions** select **Content.DelegatedWriter** and **Content.Writer**.
-7. Click **Add permissions**.
-8. Again, click **Add a permission**.
+7. Select **Add permissions**.
+8. Again, Select **Add a permission**.
 9. Select **APIs my organization uses**.
 10. In the search box, type **Microsoft Information Protection Sync Service** then select the service.
-11. Click **Application permissions**.
+11. Select **Application permissions**.
 12. Select **UnifiedPolicy.Tenant.Read**.
-13. Click **Add permissions**.
-14. In the **API permissions** blade, click **Grant admin consent for <Your Tenant>** and confirm.
+13. Select **Add permissions**.
+14. In the **API permissions** blade, Select **Grant admin consent for <Your Tenant>** and confirm.
 
 ### Generate a client secret
 
