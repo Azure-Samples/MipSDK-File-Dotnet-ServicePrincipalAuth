@@ -103,6 +103,7 @@ namespace MipSdkDotNetQuickstart
         /// </summary>
         ~Action()
         {
+            profile.UnloadEngineAsync(engine.Settings.EngineId);
             engine = null;
             profile = null;
             mipContext = null;
@@ -127,7 +128,6 @@ namespace MipSdkDotNetQuickstart
             // IFileProfile is the root of all SDK operations for a given application.
             var profile = Task.Run(async () => await MIP.LoadFileProfileAsync(profileSettings)).Result;
             return profile;
-
         }
 
         /// <summary>
