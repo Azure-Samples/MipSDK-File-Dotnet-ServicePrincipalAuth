@@ -54,20 +54,40 @@ Authentication against the Azure AD tenant requires creating a native applicatio
 
 The registered app should now be displayed.
 
+<<<<<<< HEAD
+<<<<<<< Updated upstream
+=======
+### Add API Permissions 
+
+>>>>>>> 67cda5b302e80f153968b11e4cf2c7ba8bc8863c
 1. Click **API permissions**.
 2. Click **Add a permission**.
+=======
+### Add API Permissions 
+
+1. Select **API permissions**.
+2. Select **Add a permission**.
+>>>>>>> Stashed changes
 3. Select **Microsoft APIs**.
 4. Select **Azure Rights Management Services**.
-5. Click **Application permissions**.
+5. Select **Application permissions**.
 6. Under **Select Permissions** select **Content.DelegatedWriter** and **Content.Writer**.
-7. Click **Add permissions**.
-8. Again, click **Add a permission**.
+7. Select **Add permissions**.
+8. Again, Select **Add a permission**.
 9. Select **APIs my organization uses**.
 10. In the search box, type **Microsoft Information Protection Sync Service** then select the service.
-11. Click **Application permissions**.
+11. Select **Application permissions**.
 12. Select **UnifiedPolicy.Tenant.Read**.
-13. Click **Add permissions**.
-14. In the **API permissions** blade, click **Grant admin consent for <Your Tenant>** and confirm.
+13. Select **Add permissions**.
+14. In the **API permissions** blade, Select **Grant admin consent for <Your Tenant>** and confirm.
+
+### Set Redirect URI
+
+1. Select **Authentication**.
+2. Select **Add a platform**.
+3. Select **Mobile and desktop applications**
+4. Select the default native client redirect URI, which should look similar to **https://login.microsoftonline.com/common/oauth2/nativeclient**.
+5. Select **configure** and be sure to save and changes if required. 
 
 ### Generate a client secret
 
@@ -119,21 +139,19 @@ The certificate will appear in the list, displaying the thumbprint and validity 
 
 1. In Visual Studio open **app.config**.
 2. Replace **YOUR CLIENT ID** with the application ID copied from the AAD App Registration **Overview** blade.
-3. Replace **YOUR REDIRECT URI** with the Redirect URI copied from the AAD App Registration **Authentication** blade.
-4. Replace **YOUR APP NAME** with the friendly name for your application. This will appear in logging and AIP Analytics.
-5. Replace **YOUR APP VERSION** with the version of your application. This will appear in logging and AIP Analytics.
-6. If you set the application to use *client secret* for auth, change **YOUR CLIENT SECRET** to the secret you copied earlier from **Certificates & secrets** and set **DoCertAuth** to **false**.
-7. If you intend to use a certificate, set change **YOUR CERTIFICATE THUMBPRINT** to the thumbprint of the certificate displayed in the **Certificates & secrets** section and set **DoCertAuth** to **true**.
-8. Replace **YOUR TENANT NAME** with the name of your Azure Active Directory Tenant (i.e. Contoso.com, or Contoso.onmicrosoft.com)
+3. Replace **YOUR APP NAME** with the friendly name for your application. This will appear in logging and AIP Analytics.
+4. Replace **YOUR APP VERSION** with the version of your application. This will appear in logging and AIP Analytics.
+5. If you set the application to use *client secret* for auth, change **YOUR CLIENT SECRET** to the secret you copied earlier from **Certificates & secrets** and set **DoCertAuth** to **false**.
+6. If you intend to use a certificate, set change **YOUR CERTIFICATE THUMBPRINT** to the thumbprint of the certificate displayed in the **Certificates & secrets** section and set **DoCertAuth** to **true**.
+7. Replace **YOUR TENANT GUID** with the name of your Azure Active Directory Tenant (i.e. Contoso.com, or Contoso.onmicrosoft.com)
 
 ```xml
   <appSettings>
     <add key="ida:ClientId" value="YOUR CLIENT ID" />
-    <add key="ida:RedirectUri" value="YOUR REDIRECT URI FROM AAD APP REGISTRATION" />
     <add key="ida:CertThumbprint" value="YOUR CERTIFICATE THUMBPRINT" />
     <add key="ida:ClientSecret" value="YOUR CLIENT SECRET"/>
     <add key="ida:DoCertAuth" value="false"/>
-    <add key="ida:Tenant" value="YOUR TENANT NAME"/>
+    <add key="ida:Tenant" value="YOUR TENANT GUID"/>
     <add key="app:Name" value="Test App" />
     <add key="app:Version" value="1.0.0" />
   </appSettings>
