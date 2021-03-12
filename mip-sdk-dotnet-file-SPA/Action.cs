@@ -42,7 +42,7 @@ namespace MipSdkDotNetQuickstart
     /// For this sample, only profile, engine, and handler creation are defined. 
     /// The IFileHandler may be used to label a file and read a labeled file.
     /// </summary>
-    public class Action
+    public class Action : IDisposable
     {
         // Fetch tenant name to build identity for service principal
         private static readonly string tenant = ConfigurationManager.AppSettings["ida:Tenant"];
@@ -86,9 +86,8 @@ namespace MipSdkDotNetQuickstart
             // Here, we set it to be ClientId@Tenant.com, but the SDK will accept any properly formatted email address.
             Identity id = new Identity(String.Format("{0}@{1}", appInfo.ApplicationId, tenant))
             {
-                // DelegatedEmail = "User@mytenant.com"
-                // Use this if you want the app to protect on behalf of a user.
-                // That user owns the protected content.
+                // Use this if you want the app to protect on behalf of a user. That user owns the protected content.
+                // Email = "test@contoso.com"
             };
 
             // Create profile.
@@ -101,13 +100,13 @@ namespace MipSdkDotNetQuickstart
         /// <summary>
         /// Null refs to engine and profile and release all MIP resources.
         /// </summary>
-        ~Action()
+        public void Dispose()
         {
-            profile.UnloadEngineAsync(engine.Settings.EngineId);
-            engine = null;
-            profile = null;
-            mipContext = null;
-                
+            profile.UnloadEngineAsync(engine.Settings.EngineId).Wait();
+            engine.Dispose();
+            profile.Dispose();
+            mipContext.ShutDown();
+            mipContext.Dispose();
         }
 
         /// <summary>
