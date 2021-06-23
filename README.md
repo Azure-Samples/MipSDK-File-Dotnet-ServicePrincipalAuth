@@ -54,20 +54,10 @@ Authentication against the Azure AD tenant requires creating a native applicatio
 
 The registered app should now be displayed.
 
-<<<<<<< HEAD
-<<<<<<< Updated upstream
-=======
-### Add API Permissions 
 
->>>>>>> 67cda5b302e80f153968b11e4cf2c7ba8bc8863c
+### Add API Permissions 
 1. Click **API permissions**.
 2. Click **Add a permission**.
-=======
-### Add API Permissions 
-
-1. Select **API permissions**.
-2. Select **Add a permission**.
->>>>>>> Stashed changes
 3. Select **Microsoft APIs**.
 4. Select **Azure Rights Management Services**.
 5. Select **Application permissions**.
