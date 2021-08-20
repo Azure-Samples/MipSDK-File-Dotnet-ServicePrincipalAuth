@@ -105,21 +105,30 @@ namespace MipSdkDotNetQuickstart
             Console.WriteLine(string.Format("Set label ID {0} on {1}", labelId, inputFilePath));
 
             // Set label, commit change to outputfile, and send audit event if enabled.
-            var result = action.SetLabel(options);
+            bool result = action.SetLabel(options);
 
-            Console.WriteLine(string.Format("Committed label ID {0} to {1}", labelId, outputFilePath));
+            if (result)
+            {
+                Console.WriteLine(string.Format("Committed label ID {0} to {1}", labelId, outputFilePath));
 
-            // Create a new handler to read the labeled file metadata.           
-            Console.WriteLine(string.Format("Getting the label committed to file: {0}", outputFilePath));
+                // Create a new handler to read the labeled file metadata.           
+                Console.WriteLine(string.Format("Getting the label committed to file: {0}", outputFilePath));
 
-            // Update options to read the previously generated file output.
-            options.FileName = options.OutputName;
+                // Update options to read the previously generated file output.
+                options.FileName = options.OutputName;
 
-            // Read label from the previously labeled file.
-            var contentLabel = action.GetLabel(options);
+                // Read label from the previously labeled file.
+                var contentLabel = action.GetLabel(options);
 
-            // Display the label with protection information.
-            Console.WriteLine(string.Format("File Label: {0} \r\nIsProtected: {1}", contentLabel.Label.Name, contentLabel.IsProtectionAppliedFromLabel.ToString()));
+                // Display the label with protection information.
+                Console.WriteLine(string.Format("File Label: {0} \r\nIsProtected: {1}", contentLabel.Label.Name, contentLabel.IsProtectionAppliedFromLabel.ToString()));
+            }
+
+            else
+            {
+                Console.WriteLine("No changes to file {0}", inputFilePath);
+            }
+
             Console.WriteLine("Press a key to quit.");
             Console.ReadKey();
         }

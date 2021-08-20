@@ -79,8 +79,13 @@ namespace MipSdkDotNetQuickstart
             authDelegate = new AuthDelegateImplementation(this.appInfo);
 
             // Initialize SDK DLLs. If DLLs are missing or wrong type, this will throw an exception
-
             MIP.Initialize(MipComponent.File);
+
+            // Create MipConfiguration Object
+            MipConfiguration mipConfiguration = new MipConfiguration(appInfo, "mip_data", LogLevel.Trace, false);
+
+            // Create MipContext using MipConfiguration
+            mipContext = MIP.CreateMipContext(mipConfiguration);
 
             // We must construct a service principal identity mail address as it can't be fetched from the token.
             // Here, we set it to be ClientId@Tenant.com, but the SDK will accept any properly formatted email address.
@@ -117,9 +122,7 @@ namespace MipSdkDotNetQuickstart
         /// <param name="authDelegate"></param>
         /// <returns></returns>
         private IFileProfile CreateFileProfile(ApplicationInfo appInfo, ref AuthDelegateImplementation authDelegate)
-        {
-           mipContext = MIP.CreateMipContext(appInfo, "mip_data", LogLevel.Trace, null, null);
-
+        {           
             // Initialize file profile settings to create/use local state.                
             var profileSettings = new FileProfileSettings(mipContext, CacheStorageType.OnDiskEncrypted, new ConsentDelegateImplementation());
 
@@ -211,7 +214,13 @@ namespace MipSdkDotNetQuickstart
 
             // The change isn't committed to the file referenced by the handler until CommitAsync() is called.
             // Pass the desired output file name in to the CommitAsync() function.
-            var result = Task.Run(async () => await handler.CommitAsync(options.OutputName)).Result;
+            bool result = false;
+
+            // Check to see that modifications occurred on the handler. If not, skip commit. 
+            if (handler.IsModified())
+            {
+                result = Task.Run(async () => await handler.CommitAsync(options.OutputName)).Result;
+            }
 
             // If the commit was successful and GenerateChangeAuditEvents is true, call NotifyCommitSuccessful()
             if (result && options.GenerateChangeAuditEvent)
