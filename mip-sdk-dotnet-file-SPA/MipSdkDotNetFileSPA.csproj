@@ -132,10 +132,10 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.IdentityModel.Clients.ActiveDirectory">
-      <Version>5.2.8</Version>
+      <Version>5.2.9</Version>
     </PackageReference>
     <PackageReference Include="Microsoft.InformationProtection.File">
-      <Version>1.9.78</Version>
+      <Version>1.10.93</Version>
     </PackageReference>
     <PackageReference Include="System.IO">
       <Version>4.3.0</Version>
