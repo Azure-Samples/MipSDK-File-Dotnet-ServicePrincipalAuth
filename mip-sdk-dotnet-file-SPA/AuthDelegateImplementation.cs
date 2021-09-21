@@ -28,10 +28,10 @@
 using System;
 using System.Configuration;
 using Microsoft.InformationProtection;
-using Microsoft.IdentityModel.Clients.ActiveDirectory;
+using Microsoft.Identity.Client;
 using System.Security.Cryptography.X509Certificates;
 using System.Linq;
-using System.Windows.Forms;
+
 
 namespace MipSdkDotNetQuickstart
 {
@@ -52,7 +52,7 @@ namespace MipSdkDotNetQuickstart
         private static readonly string tenant = ConfigurationManager.AppSettings["ida:Tenant"];
 
         private ApplicationInfo appInfo;        
-        private TokenCache tokenCache = new TokenCache();
+        //private TokenCache tokenCache = new TokenCache();
         
         public AuthDelegateImplementation(ApplicationInfo appInfo)
         {
@@ -73,31 +73,47 @@ namespace MipSdkDotNetQuickstart
         /// <returns>The OAuth2 token for the user</returns>
         public string AcquireToken(Identity identity, string authority, string resource, string claim)
         {
-            // Append tenant to authority.
-            authority = string.Format("{0}/{1}", authority, tenant);
+            // Append tenant to authority and remove common. 
+            if (authority.ToLower().Contains("common"))
+            {
+                var authorityUri = new Uri(authority);
+                authority = String.Format("https://{0}/{1}", authorityUri.Host, tenant);
+            }
 
-            AuthenticationContext authContext = new AuthenticationContext(authority, tokenCache);
-            AuthenticationResult result;
+            IConfidentialClientApplication app;
 
             if (doCertAuth)
             {
                 Console.WriteLine("Performing certificate based auth with {0}", certThumb);
 
                 // Read cert from local machine
-                var cert = ReadCertificateFromStore(certThumb);
+                var certificate = ReadCertificateFromStore(certThumb);
                 // Use cert to build ClientAssertionCertificate
-                var certcred = new ClientAssertionCertificate(appInfo.ApplicationId, cert);
-                result = authContext.AcquireTokenAsync(resource, certcred).Result;
+                app = ConfidentialClientApplicationBuilder.Create(appInfo.ApplicationId)
+                .WithCertificate(certificate)
+                .WithRedirectUri(redirectUri)
+                .Build();
             }
 
             else
             {
                 Console.WriteLine("Performing client secret based auth.");
-                var clientCred = new ClientCredential(appInfo.ApplicationId, clientSecret);
-                result = authContext.AcquireTokenAsync(resource, clientCred).Result;
-            }            
+                app = ConfidentialClientApplicationBuilder.Create(appInfo.ApplicationId)
+                .WithClientSecret(clientSecret)
+                .WithRedirectUri(redirectUri)
+                .Build();
+                
+            }
+            
+            string[] scopes = new string[] { resource[resource.Length - 1].Equals('/') ? $"{resource}.default" : $"{resource}/.default" };
+
+            AuthenticationResult authResult = app.AcquireTokenForClient(scopes)
+                .WithAuthority(authority)
+                .ExecuteAsync()
+                .GetAwaiter()
+                .GetResult();
             // Return the token. The token is sent to the resource.
-            return result.AccessToken;
+            return authResult.AccessToken;
         }
 
         private static X509Certificate2 ReadCertificateFromStore(string thumbprint)
