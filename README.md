@@ -137,14 +137,19 @@ The certificate will appear in the list, displaying the thumbprint and validity 
 
 ```xml
   <appSettings>
-    <add key="ida:ClientId" value="YOUR CLIENT ID" />
-    <add key="ida:CertThumbprint" value="YOUR CERTIFICATE THUMBPRINT" />
-    <add key="ida:ClientSecret" value="YOUR CLIENT SECRET"/>
-    <add key="ida:DoCertAuth" value="false"/>
-    <add key="ida:Tenant" value="YOUR TENANT GUID"/>
-    <add key="app:Name" value="Test App" />
-    <add key="app:Version" value="1.0.0" />
-  </appSettings>
+    <add key="ida:ClientId" value="YOUR CLIENT ID"/>    
+    <add key="ida:RedirectUri" value="https://login.microsoftonline.com/common/oauth2/nativeclient"/>
+    <add key="ida:CertThumbprint" value="YOUR CERT THUMBPRINT"/>
+    <add key="ida:ClientSecret" value="YOUR CLIENT SECRET"/>    
+    <!-- change this flag to true if you're doing certificate based auth. False if using client secret. -->
+    <add key="ida:DoCertAuth" value="false"/>        
+    <!-- Tenant name in format of Contoso.com or contoso.onmicrosot.com -->
+    <add key="ida:Tenant" value="YOUR TENANT ID"/>        
+    <!-- Your app name. This name will appear in AIP Analytics logs -->
+    <add key="app:Name" value="MIP SDK Service Principal Auth Test App"/>
+    <!-- Your app version. This will appear in AIP Analytics logs -->
+    <add key="app:Version" value="1.10.0"/>    
+  </appSettings> 
 ```
 
 ## Run the Sample
