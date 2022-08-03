@@ -3,12 +3,13 @@ page_type: sample
 languages:
 - csharp
 products:
-- azure
+- m365
+- office-365
 description: "This sample application demonstrates using the Microsoft Information Protection SDK .NET wrapper to label and read a label from a file using service principal authentication. "
-urlFragment: MipSdk-Dotnet-File-ServicePrincipalAuth
+urlFragment: MipSDK-File-Dotnet-ServicePrincipalAuth
 ---
 
-# MipSdk-Dotnet-File-ServicePrincipalAuth
+# MipSDK-File-Dotnet-ServicePrincipalAuth
 
 This sample application demonstrates using the Microsoft Information Protection SDK .NET wrapper to label and read a label from a file using **service principal authentication**. The sample provides steps and code or both client secret and certificate-based authentication.
 
