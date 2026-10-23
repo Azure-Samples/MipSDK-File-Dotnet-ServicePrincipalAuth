@@ -1,168 +1,367 @@
----
-page_type: sample
-languages:
-- csharp
-products:
-- m365
-- office-365
-description: "This sample application demonstrates using the Microsoft Information Protection SDK .NET wrapper to label and read a label from a file using service principal authentication. "
-urlFragment: MipSDK-File-Dotnet-ServicePrincipalAuth
----
+# MIP SDK File API sample: service principal authentication
 
-# MipSDK-File-Dotnet-ServicePrincipalAuth
+A Windows x64, .NET 10 console sample that lists Microsoft Purview sensitivity labels,
+reads a file's label, and applies a label to a new output file. Authentication uses
+Microsoft Entra ID client credentials, with a certificate or client secret. It does
+not sign in a user.
 
-This sample application demonstrates using the Microsoft Information Protection SDK .NET wrapper to label and read a label from a file using **service principal authentication**. The sample provides steps and code or both client secret and certificate-based authentication.
+This is a single-tenant sample, not a production document-processing service.
+Managed identity, delegated-user labeling, custom permissions, label removal,
+justified downgrades, and automatic classification are not implemented.
 
-Beyond the authentication flow, it demonstrates:
+## Prerequisites and package baseline
 
-- Fetching labels for the tenant
-- Applying a label to a file
-- Reading a label from a file
+- Supported Windows x64 and the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0).
+  `global.json` selects a stable .NET 10 SDK feature band.
+- The current supported
+  [Microsoft Visual C++ x64 Redistributable](https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist).
+  The NuGet package supplies the MIP native DLLs; keep its `x64` subdirectory intact.
+- For live operations: a licensed, configured Microsoft Purview Information Protection
+  tenant, file-scoped sensitivity labels, and an Entra application with admin-consented
+  application permissions. No tenant credentials are needed for the offline tests.
 
-## Summary
+Stable application dependencies verified on **October 22, 2026**:
 
-This sample application illustrates using the MIP File API to list labels, apply a label, then read the label as a service principal identity. All SDK actions are implemented in **action.cs**. All auth behaviour is implemented in **AuthDelegateImplementation.cs**.
+| Package | Version |
+| --- | --- |
+| `Microsoft.InformationProtection.File` | `1.18.148` |
+| `Microsoft.Identity.Client` (MSAL.NET) | `4.91.1` |
+| `Microsoft.Extensions.Configuration.Json` | `10.0.13` |
+| `Microsoft.Extensions.Configuration.EnvironmentVariables` | `10.0.13` |
 
-## Getting Started
+Tests use xUnit v3 `4.0.2`, Moq `4.21.0`, and Coverlet MTP `10.1.0`.
+The .NET 10 test runner is **Microsoft.Testing.Platform**, configured in `global.json`.
 
-### Prerequisites
+## Register the application
 
-- Visual Studio 2015 or later with Visual C# development features installed
+1. Register a single-tenant application in Microsoft Entra ID and record its application
+   ID and tenant ID. Do **not** enable public-client flows or add a redirect URI for
+   this client-credentials sample.
+2. Add the application permissions appropriate to your scenario and grant tenant
+   administrator consent:
 
-### Sample Setup
+| API | Application permission | When needed |
+| --- | --- | --- |
+| Microsoft Purview Information Protection Sync Service (also shown as Microsoft Information Protection Sync Service) | `UnifiedPolicy.Tenant.Read` | Download tenant labeling policy |
+| Azure Rights Management Services | `Content.Writer` | Protect content owned by the application; see the offline-publishing caveat below |
 
-In Visual Studio 2017:
+Do not automatically grant `Content.SuperUser`, `Content.DelegatedReader`, or
+`Content.DelegatedWriter`. Those serve different scenarios with broader access.
+An application that processes existing protected content also needs the appropriate
+rights to that content. Review the
+[MIP permission reference](https://learn.microsoft.com/information-protection/develop/concept-api-permissions)
+before extending this sample.
 
-1. Right-click the project and select **Manage NuGet Packages**
-2. On the **Browse** tab, search for *Microsoft.InformationProtection.File*
-3. Select the package and click **Install**
+Application authentication obtains tenant policy, not one user's published-label
+view. The engine uses `clientId@tenant` as a stable engine/cache identity. This is
+not a user account and is not a principal to add to a user label-publishing policy.
+This sample does not set `DelegatedUserEmail`.
 
-### Create an Azure AD App Registration
+### Known issue: offline publishing with service principals
 
-Authentication against the Azure AD tenant requires creating a native application registration. The client ID created in this step is used in a later step to generate an OAuth2 token.
+The File SDK enables offline publishing by default. A known issue requires
+service principals to have super-user privileges to retrieve the full RMS
+templates used by offline publishing. With `Content.Writer` alone, applying a
+protected label can fail with `TemplateNotFoundException` even when its template
+exists.
 
-> Skip this step if you've already created a registration for previous sample. You may continue to use that client ID.
+Rather than automatically granting broader privileges, use online publishing by
+disabling **offline** publishing. Add this property to the `MipConfiguration`
+initializer in `MipHandler.CreateAsync`, before `MIP.CreateMipContext`:
 
-1. Go to https://portal.azure.com and log in as a global admin.
-> Your tenant may permit standard users to register applications. If you aren't a global admin, you can attempt these steps, but may need to work with a tenant administrator to have an application registered or be granted access to register applications.
-2. Click Azure Active Directory, then **App Registrations** in the menu blade.
-3. Click **New Registration**
-4. Under *Supported account types* select **Accounts in this directory only**
-5. Under *Redirect URI* select **Public client**
-6. For *Redirect URI*, enter **mipsdk-auth-sample://authorize**   
-  > Note: This can be anything you'd like.
-8. Click **Register**
+```csharp
+FeatureSettingsOverride = new Dictionary<FlightingFeature, bool>
+{
+    [FlightingFeature.FileSDKOfflinePublishing] = false
+},
+```
 
-The registered app should now be displayed.
+The same override is shown as a commented-out example in the source; the sample
+leaves the SDK default unchanged until you explicitly enable the workaround.
+Online publishing requires connectivity to the Rights Management service.
+This flag is separate from `MipConfiguration.IsOfflineOnly`: the existing
+constructor argument allowing network operations does not disable offline
+publishing. See the [offline-publishing overview](https://learn.microsoft.com/information-protection/develop/concept-offline-publishing).
 
+## Configure authentication
 
-### Add API Permissions 
-1. Click **API permissions**.
-2. Click **Add a permission**.
-3. Select **Microsoft APIs**.
-4. Select **Azure Rights Management Services**.
-5. Select **Application permissions**.
-6. Under **Select Permissions** select **Content.DelegatedWriter** and **Content.Writer**.
-7. Select **Add permissions**.
-8. Again, Select **Add a permission**.
-9. Select **APIs my organization uses**.
-10. In the search box, type **Microsoft Information Protection Sync Service** then select the service.
-11. Select **Application permissions**.
-12. Select **UnifiedPolicy.Tenant.Read**.
-13. Select **Add permissions**.
-14. In the **API permissions** blade, Select **Grant admin consent for <Your Tenant>** and confirm.
+Configuration is read in increasing precedence:
 
-### Set Redirect URI
+1. `appsettings.json` beside the application, containing safe defaults and blank credentials.
+2. Optional `appsettings.local.json` in the **current working directory**.
+3. Environment variables with the `MIP_` prefix. Use `__` for nested settings.
 
-1. Select **Authentication**.
-2. Select **Add a platform**.
-3. Select **Mobile and desktop applications**
-4. Select the default native client redirect URI, which should look similar to **https://login.microsoftonline.com/common/oauth2/nativeclient**.
-5. Select **configure** and be sure to save and changes if required. 
+Do not edit checked-in settings to contain real credentials. Local settings are
+gitignored and excluded from build/publish copying. Environment variables are
+convenient for development, but are not a secret vault.
 
-### Generate a client secret
+### Certificate, recommended
 
-If you'd prefer to use certificate based auth, skip ahead to [Generate a client certificate](#Generate-a-client-certificate).
-
-1. In the Azure AD application regisration menu, find the application you registered.
-2. Select **Certificates and secrets**.
-3. Click **New client secret**.
-4. For the description, enter "MIP SDK Test App".
-5. Select **In 1 year** for expiration
-  > This can be 1 year, 2 years, or never.
-6. Click **Add**.
-
-The secret will be displayed in the portal. **Copy the secret now, as it will disappear after page refresh.**
-
-  > Storing client secrets in plaintext isn't a best practice
-
-### Generate a client certificate
-
-This step generates a self-signed certificate, writes the thumbprint to the console, then exports the certificate to a cert file. If you used a [client secret](#Generate-a-client-secret), skip ahead to [update application configuration settings](#Update-application-configuration-settings).
-
-Run the following PowerShell script:
+Upload the certificate's **public certificate** to the Entra application. The
+corresponding certificate and accessible private key must exist in
+`Cert:\CurrentUser\My` for the Windows account running the application.
+The sample does not generate, import, export, or upload certificates.
 
 ```powershell
-mkdir c:\temp
-cd c:\temp
-
-#Generate the certificate
-$cert = New-SelfSignedCertificate -Subject "CN=MipSdkFileApiDotNet" -CertStoreLocation "Cert:\CurrentUser\My"  -KeyExportPolicy Exportable -KeySpec Signature
-$cert.Thumbprint
-$certFile = (Get-ChildItem -Path Cert:\CurrentUser\my\$($cert.thumbprint))
-Export-Certificate -cert $cert -FilePath cba.cer -Type:CERT
-
-# take the CER file and upload to AAD App Registration portal
+$env:MIP_Ida__ClientId = '<application-guid>'
+$env:MIP_Ida__Tenant = '<tenant-guid-or-verified-domain>'
+$env:MIP_Ida__DoCertAuth = 'true'
+$env:MIP_Ida__CertThumbprint = '<40-hex-character-thumbprint>'
 ```
 
-### Import the certificate to the application registration
+The thumbprint is a SHA-1 lookup identifier, not the certificate's signing algorithm.
+Whitespace is normalized. Missing certificates, missing private keys, and expired
+or not-yet-valid certificates fail before SDK initialization.
 
-In this step, the public certificate generated in the previous section will be imported to the application registration.
+### Client secret, development alternative
 
-1. In the Azure AD application regisration menu, find the application you registered.
-2. Select **Certificates and secrets**
-3. Click **Upload certificate**
-4. Browse to the CER file generated in the previous section, then click **Add**
+Use a secret value supplied by your approved secret-management mechanism, not the
+secret's identifier. Avoid putting it in command-line arguments, scripts, or shell history.
 
-The certificate will appear in the list, displaying the thumbprint and validity period.
-
-### Update application configuration settings
-
-1. In Visual Studio open **app.config**.
-2. Replace **YOUR CLIENT ID** with the application ID copied from the AAD App Registration **Overview** blade.
-3. Replace **YOUR APP NAME** with the friendly name for your application. This will appear in logging and AIP Analytics.
-4. Replace **YOUR APP VERSION** with the version of your application. This will appear in logging and AIP Analytics.
-5. If you set the application to use *client secret* for auth, change **YOUR CLIENT SECRET** to the secret you copied earlier from **Certificates & secrets** and set **DoCertAuth** to **false**.
-6. If you intend to use a certificate, set change **YOUR CERTIFICATE THUMBPRINT** to the thumbprint of the certificate displayed in the **Certificates & secrets** section and set **DoCertAuth** to **true**.
-7. Replace **YOUR TENANT GUID** with the name of your Azure Active Directory Tenant (i.e. Contoso.com, or Contoso.onmicrosoft.com)
-
-```xml
-  <appSettings>
-    <add key="ida:ClientId" value="YOUR CLIENT ID"/>    
-    <add key="ida:RedirectUri" value="https://login.microsoftonline.com/common/oauth2/nativeclient"/>
-    <add key="ida:CertThumbprint" value="YOUR CERT THUMBPRINT"/>
-    <add key="ida:ClientSecret" value="YOUR CLIENT SECRET"/>    
-    <!-- change this flag to true if you're doing certificate based auth. False if using client secret. -->
-    <add key="ida:DoCertAuth" value="false"/>        
-    <!-- Tenant name in format of Contoso.com or contoso.onmicrosot.com -->
-    <add key="ida:Tenant" value="YOUR TENANT ID"/>        
-    <!-- Your app name. This name will appear in AIP Analytics logs -->
-    <add key="app:Name" value="MIP SDK Service Principal Auth Test App"/>
-    <!-- Your app version. This will appear in AIP Analytics logs -->
-    <add key="app:Version" value="1.10.0"/>    
-  </appSettings> 
+```powershell
+$env:MIP_Ida__DoCertAuth = 'false'
+# Set MIP_Ida__ClientSecret through your local secret-management mechanism.
+# ClientId and Tenant are still required.
 ```
 
-## Run the Sample
+Alternatively, an ignored `appsettings.local.json` can contain the same `Ida` and
+`App` properties as `appsettings.json`. Protect its filesystem access and never
+include it in shared archives.
 
-Press F5 to run the sample. The console application will start and after a brief moment displays the labels available for the user.
+### Cloud selection
 
-- Copy a label ID to the clipboard.
-- Paste the label in to the input prompt.
-- Next, the app asks for a path to a file. Enter the path to an Office document or PDF file.
-- Finally, the app will display the name of the applied label.
-- Attempt to open the file in a viewer that supports labeling or protection (Office or Adobe Reader)
+`App:Cloud` defaults to `Commercial` and is explicitly assigned to
+`FileEngineSettings.Cloud`. For a sovereign-cloud tenant, set the matching MIP
+`Cloud` enum name, for example:
 
-## Resources
+```powershell
+$env:MIP_App__Cloud = 'US_GCC_High'
+```
 
-- [Microsoft Information Protection Docs](https://aka.ms/mipsdkdocs)
+The SDK selects policy and protection endpoints for that cloud; the sample does
+not maintain authority/resource hostname allowlists or use an engine identity
+for cloud discovery. Authentication retains HTTPS/URI validation, configured-tenant
+pinning, and MSAL's default authority validation. `Unknown`, `Custom`, and `Test`
+are rejected; custom endpoint overrides are outside this sample's scope.
+
+### Service consent and diagnostics
+
+Before running live commands, review and explicitly accept that this application
+contacts Microsoft Entra and Microsoft Information Protection services to authenticate,
+download policy, and perform requested labeling/protection operations:
+
+```powershell
+$env:MIP_App__AcceptServiceConsent = 'true'
+```
+
+This is operator consent for the sample's service connection, **not** an Entra
+permission grant or a replacement for admin consent.
+
+Automatic SDK diagnostic telemetry and trace upload are disabled. Local SDK logging
+defaults to `Warning`; opt-in `--audit` enables discovery auditing and successful
+commit notification for that operation. This does not disable Microsoft service-side
+security or operational logging. Labels, paths, tenant identifiers, and application
+identifiers can appear in local logs or audit records. Do not publish caches or
+logs without reviewing/redacting them.
+
+| Setting | Default / behavior |
+| --- | --- |
+| `App:CachePath` | `%LOCALAPPDATA%\MipSdkSample\<client-id>\<tenant>`; SDK cache storage is encrypted |
+| `App:LogLevel` | `Warning`; supported values: `Trace`, `Info`, `Warning`, `Error` |
+| `App:AcceptServiceConsent` | `false`; required for live commands |
+| `App:Name`, `App:Version` | Application identity metadata supplied to the SDK |
+
+Use `MIP_App__CachePath` or `MIP_App__LogLevel` to override those settings.
+Local logs are under the cache root, normally in `mip\logs`.
+Retain only what your organization's retention policy permits. Stop all SDK
+processes before removing a cache; native logging can hold files open until process exit.
+
+## Build and run
+
+Run these PowerShell commands from the repository root:
+
+```powershell
+dotnet restore .\MipSdkDotNetFileSPA.sln
+dotnet build .\MipSdkDotNetFileSPA.sln --no-restore --configuration Release
+
+dotnet run --project .\mip-sdk-dotnet-file-SPA --configuration Release -- --help
+dotnet run --project .\mip-sdk-dotnet-file-SPA --configuration Release -- list
+dotnet run --project .\mip-sdk-dotnet-file-SPA --configuration Release -- get --input 'C:\Test\input.docx'
+dotnet run --project .\mip-sdk-dotnet-file-SPA --configuration Release -- set --input 'C:\Test\input.docx' --output 'C:\Test\labeled.docx' --label '<label-guid>'
+```
+
+With no arguments, the sample lists labels and prompts for a label ID and input/output
+paths. A blank label or end-of-input exits normally. `--help` does not initialize
+the SDK or require configuration. Add `--audit` to `get` or `set` only when wanted.
+
+Choose an active **leaf label**, not a parent label, and an output file with the
+appropriate extension for the input format. This sample does not convert file formats.
+Use unprotected or administrator-defined protection labels; labels requiring
+user-defined permissions need additional implementation.
+
+File behavior:
+
+- The input is never overwritten. Output must be a new path in an existing directory.
+- The SDK evaluates every labeling request, even when the label ID already matches.
+  Only an SDK no-op returns **unchanged** and creates no output; reapplying the
+  same label can produce an updated file.
+- A changed file is committed to a unique same-directory staging file, then moved
+  without overwriting an existing destination, including a competing writer.
+- Success requires reading the output back and matching its label ID. When the
+  label requires Rights Management protection, read-back must also confirm that
+  protection was applied by the label. A failed verification leaves the output
+  for inspection and reports an error, without successful commit notification.
+  Staging files are cleaned on ordinary failures; a crash can leave a `.mip-*` file.
+- Successful commit notification uses the final output path, never the input path.
+
+Exit codes: `0` success/unchanged, `2` invalid command or argument, `1` operational,
+authentication, configuration, or SDK failure. MSAL errors print an error code
+and correlation ID rather than token/server-response details. Other SDK errors
+can contain tenant or file metadata; treat console output accordingly.
+
+### Downgrade justification: code-only example
+
+The CLI does not prompt for justification, set it automatically, or retry a
+rejected downgrade. If tenant policy requires justification for the requested
+lower-priority label, this SDK call throws
+`Microsoft.InformationProtection.Exceptions.JustificationRequiredException`:
+
+```csharp
+// handler is an IFileHandler; lowerPriorityLabel is the requested Label.
+handler.SetLabel(
+    lowerPriorityLabel,
+    new LabelingOptions { AssignmentMethod = AssignmentMethod.Standard },
+    new ProtectionSettings());
+```
+
+The CLI reports the exception and returns exit code `1`; it does not commit output.
+For an explicitly approved downgrade in your own integration, replace the
+`LabelingOptions` passed to `handler.SetLabel` with a meaningful justification:
+
+```csharp
+handler.SetLabel(
+    lowerPriorityLabel,
+    new LabelingOptions
+    {
+        AssignmentMethod = AssignmentMethod.Standard,
+        IsDowngradeJustified = true,
+        JustificationMessage = "Approved downgrade after sensitive content was removed."
+    },
+    new ProtectionSettings());
+```
+
+The reason above is illustrative, not a default or an automatic exception fallback.
+Only supply an accurate reason for an approved action. Justification does not
+grant content rights or bypass authorization; ordinary commit and read-back
+verification are still required after a successful `SetLabel`.
+
+## Tests and test plan
+
+The default suite needs no credentials and includes native Windows x64 initialization.
+Integration cases are skipped unless explicitly enabled.
+
+```powershell
+# Credential-free unit tests and native SDK initialization
+dotnet test --solution .\MipSdkDotNetFileSPA.sln --configuration Release --filter 'Category!=Integration'
+
+# Unit tests without loading native SDK DLLs
+dotnet test --solution .\MipSdkDotNetFileSPA.sln --configuration Release --filter 'Category!=Integration&Category!=Native'
+
+# Native dependency smoke test only
+dotnet test --solution .\MipSdkDotNetFileSPA.sln --configuration Release --filter 'Category=Native'
+
+# Application coverage, using MTP rather than the VSTest --collect switch
+dotnet test --solution .\MipSdkDotNetFileSPA.sln --configuration Release --filter 'Category!=Integration' --coverlet --coverlet-include '[MipSdkDotNetQuickstart]*' --coverlet-output-format cobertura --results-directory .\TestResults
+```
+
+Do not run coverage instrumentation alongside other test processes using the same
+build output directory. Coverlet temporarily instruments the application assembly.
+
+| Layer | Cases |
+| --- | --- |
+| Configuration | Missing/placeholder settings, tenant/client IDs, auth modes, certificate thumbprints, explicit cloud selection, logging, consent, JSON/local/environment precedence |
+| Authentication | Authority/resource URI normalization, tenant pinning, `/.default` scopes, claims forwarding, MSAL client/token reuse using offline HTTP, certificate validity/private keys, disposal |
+| SDK workflow | Explicit engine cloud without identity-based discovery, partial initialization and cleanup errors, disposal order, managed label snapshots, invalid/inactive/parent labels, input/output validation |
+| File writes | SDK-driven no-op, same-ID protection repair, commit false/exception, staging cleanup, competing output writer, read-back absent/mismatch/missing protection, missing justification without retry, original input preserved, opt-in audit and output-path notification |
+| CLI | Help without credentials, invalid/duplicate options, exit codes, no-label/EOF handling, interactive/command workflows, sanitized MSAL failures |
+| Native/publish | Windows x64 DLL initialization in test output and the published directory, safe configuration packaging |
+| Live tenant, opt-in | Policy enumeration; generated DOCX/PDF label, read-back, input preservation, and SDK-driven repeat-label outcome |
+| Optional live protection | Protected generated DOCX when an approved protection label is explicitly supplied |
+
+For live tests, set the authentication and consent environment variables above.
+Use a test tenant and generated content only:
+
+```powershell
+$env:MIP_TEST_RUN = 'true'
+# Optional: explicitly select an active, unprotected, file-scoped leaf label.
+# Otherwise the test selects the first active unprotected leaf returned.
+$env:MIP_TEST_LABEL_ID = '<unprotected-label-guid>'
+dotnet test --solution .\MipSdkDotNetFileSPA.sln --configuration Release --filter 'Category=Integration' --timeout 3m
+Remove-Item Env:\MIP_TEST_RUN
+Remove-Item Env:\MIP_TEST_LABEL_ID
+```
+
+The optional protection case also requires `MIP_TEST_PROTECTED_LABEL_ID`, sufficient
+content rights, and a label with administrator-defined protection suitable for the
+test app. Files are generated in a unique temporary directory and removed afterward.
+Live tests use the configured persistent SDK cache. They do not change tenant
+settings, labels, permissions, or application credentials.
+
+Run the same integration cases separately in certificate and secret modes to exercise
+both live authentication paths. Permission-denied/expired-credential scenarios should
+use dedicated test registrations, not changes to a working production application.
+The suite does not claim to test all protection templates, cloud regions, downgrade
+policies, conditional access configurations, or service-side audit delivery.
+
+## Publish and automation
+
+```powershell
+dotnet publish .\mip-sdk-dotnet-file-SPA\MipSdkDotNetFileSPA.csproj --configuration Release --runtime win-x64 --self-contained false --output .\artifacts\publish
+pwsh -NoProfile -File .\scripts\Test-Publish.ps1 -PublishDirectory .\artifacts\publish
+```
+
+Keep the entire publish directory. Do not enable trimming, Native AOT, or single-file
+bundling without separately validating MIP's native interop/dependency requirements.
+Framework-dependent deployments require the .NET 10 x64 runtime.
+
+Windows CI restores, builds with warnings as errors, runs credential-free tests
+and enforces at least 80% application line coverage, audits direct/transitive NuGet
+dependencies, and verifies published native DLL loading. CodeQL has a separate
+scheduled/PR workflow. Dependabot checks
+NuGet and GitHub Actions weekly. These workflows do **not** use tenant credentials.
+
+For a local dependency advisory check:
+
+```powershell
+dotnet list .\MipSdkDotNetFileSPA.sln package --vulnerable --include-transitive
+```
+
+NuGet advisory checks do not independently analyze native libraries bundled inside
+MIP. Review vendor release notes and your organization's scanning results before
+deployment. Snyk Code scanning requires the organization's configured Snyk tooling;
+it is not replaced by a successful dependency advisory check.
+
+## Implementation notes and troubleshooting
+
+`SampleSettings` validates configuration. `AuthDelegateImplementation` owns one
+certificate and caches confidential clients per normalized authority. MSAL retains
+an in-memory application token cache; the unavoidable synchronous SDK auth callback
+is the only sync-over-async boundary. `MipHandler` owns engine, profile, and context,
+disposes partial initialization safely, and returns managed label snapshots.
+Reuse a session rather than rebuilding engines for each file; finish operations
+before disposing it. Session operations/disposal are not designed to race.
+
+| Symptom | Check |
+| --- | --- |
+| Native DLL load/bad image error | Windows x64 process, x64 VC++ runtime, intact `x64` native directory |
+| Certificate not found/private key inaccessible | `CurrentUser\My` for the actual process account, validity and private-key ACLs |
+| Authentication/authorization failure | Tenant and credential registration, expiry, API application permissions, admin consent, content rights; use the correlation ID |
+| No usable labels | Matching `App:Cloud`, tenant labeling configuration, file scope, active leaf labels, tenant-policy permission; the engine ID is not a user to publish labels to |
+| Output already exists | Choose a new name; the sample intentionally has no overwrite option |
+| Protected-label failure | Template permissions, content rights, supported file format, and whether the label requires unsupported user-defined permissions |
+| `TemplateNotFoundException` | Check the known service-principal offline-publishing issue above: template retrieval can require super-user privileges even with `Content.Writer`; disable offline publishing to use online publishing instead. Also verify template availability and access |
+
+See the [MIP SDK documentation](https://learn.microsoft.com/information-protection/develop/),
+[MSAL client-credentials guidance](https://learn.microsoft.com/entra/msal/dotnet/acquiring-tokens/web-apps-apis/client-credential-flows),
+[contributor guide](CONTRIBUTING.md), and [changelog](CHANGELOG.md).
+The sample is licensed under the [MIT license](LICENSE.md).
