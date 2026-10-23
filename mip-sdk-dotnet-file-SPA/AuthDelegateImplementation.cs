@@ -1,141 +1,224 @@
-﻿/*
-*
-* Copyright (c) Microsoft Corporation.
-* All rights reserved.
-*
-* This code is licensed under the MIT License.
-*
-* Permission is hereby granted, free of charge, to any person obtaining a copy
-* of this software and associated documentation files(the "Software"), to deal
-* in the Software without restriction, including without limitation the rights
-* to use, copy, modify, merge, publish, distribute, sublicense, and / or sell
-* copies of the Software, and to permit persons to whom the Software is
-* furnished to do so, subject to the following conditions :
-*
-* The above copyright notice and this permission notice shall be included in
-* all copies or substantial portions of the Software.
-*
-* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.IN NO EVENT SHALL THE
-* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-* THE SOFTWARE.
-*
-*/
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
 
-using System;
-using System.Configuration;
-using Microsoft.InformationProtection;
-using Microsoft.Identity.Client;
+using System.Collections.Concurrent;
 using System.Security.Cryptography.X509Certificates;
-using System.Linq;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Identity.Client;
+using Microsoft.InformationProtection;
 
+namespace MipSdkDotNetQuickstart;
 
-namespace MipSdkDotNetQuickstart
+/// <summary>
+/// Implements MIP SDK authentication using service principal credentials.
+/// Supports both certificate and client secret authentication.
+/// </summary>
+public sealed class AuthDelegateImplementation : IAuthDelegate, IDisposable
 {
-    public class AuthDelegateImplementation : IAuthDelegate
+    private readonly SampleSettings _settings;
+    private readonly IMsalHttpClientFactory? _httpClientFactory;
+    private readonly ConcurrentDictionary<string, Lazy<IConfidentialClientApplication>> _clients = new();
+    private readonly Lazy<X509Certificate2> _certificate;
+    private bool _disposed;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="AuthDelegateImplementation"/> class.
+    /// </summary>
+    public AuthDelegateImplementation(ApplicationInfo appInfo, IConfiguration configuration)
+        : this(SampleSettings.Load(configuration, appInfo))
     {
-        // Set the redirect URI from the AAD Application Registration.
-        private static readonly string redirectUri = ConfigurationManager.AppSettings["ida:RedirectUri"];
+    }
 
-        // Fetch cert thumbprint, appkey, and DoCertAuth flag from app.config
-        private static readonly string certThumb = ConfigurationManager.AppSettings["ida:CertThumbprint"];
-        private static readonly bool doCertAuth = Convert.ToBoolean(ConfigurationManager.AppSettings["ida:DoCertAuth"]);
-        private static readonly string clientSecret = ConfigurationManager.AppSettings["ida:ClientSecret"];
-
-
-        // Fetch tenant name from app.config
-        // We use the tenant ID to append to the authority, as we need this as a hint to find the correct tenant.
-        // Using the common endpoint without tenant throws an exception. 
-        private static readonly string tenant = ConfigurationManager.AppSettings["ida:Tenant"];
-
-        private ApplicationInfo appInfo;        
-        //private TokenCache tokenCache = new TokenCache();
-        
-        public AuthDelegateImplementation(ApplicationInfo appInfo)
+    internal AuthDelegateImplementation(SampleSettings settings, IMsalHttpClientFactory? httpClientFactory = null)
+    {
+        _settings = settings;
+        _httpClientFactory = httpClientFactory;
+        _certificate = new Lazy<X509Certificate2>(() => LoadCertificateFromStore(settings.CertificateThumbprint));
+        if (settings.UseCertificate)
         {
-            this.appInfo = appInfo;
+            _ = _certificate.Value;
+        }
+    }
+
+    /// <summary>
+    /// Acquires an OAuth2 access token for the specified resource.
+    /// Called by the MIP SDK when authentication is required.
+    /// </summary>
+    public string AcquireToken(Identity identity, string authority, string resource, string claim)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        var scope = BuildDefaultScope(resource);
+        var app = GetClient(authority);
+        var tokenRequest = app.AcquireTokenForClient(scopes: [scope]);
+
+        if (!string.IsNullOrWhiteSpace(claim))
+        {
+            tokenRequest = tokenRequest.WithClaims(claim);
         }
 
-        /// <summary>
-        /// AcquireToken is called by the SDK when auth is required for an operation. 
-        /// Adding or loading an IFileEngine is typically where this will occur first.
-        /// The SDK provides all three parameters below.Identity from the EngineSettings.
-        /// Authority and resource are provided from the 401 challenge.
-        /// The SDK cares only that an OAuth2 token is returned.How it's fetched isn't important.
-        /// In this sample, we fetch the token using Active Directory Authentication Library(ADAL).
-        /// </summary>
-        /// <param name="identity"></param>
-        /// <param name="authority"></param>
-        /// <param name="resource"></param>
-        /// <returns>The OAuth2 token for the user</returns>
-        public string AcquireToken(Identity identity, string authority, string resource, string claim)
+        // IAuthDelegate is synchronous even though MSAL's token API is asynchronous.
+        var authResult = tokenRequest.ExecuteAsync().ConfigureAwait(false).GetAwaiter().GetResult();
+
+        return authResult.AccessToken;
+    }
+
+    internal IConfidentialClientApplication GetClient(string authority)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        var normalizedAuthority = NormalizeAuthority(authority, _settings.Tenant);
+        return _clients.GetOrAdd(normalizedAuthority, value =>
+            new Lazy<IConfidentialClientApplication>(() => BuildConfidentialClientApplication(value))).Value;
+    }
+
+    private IConfidentialClientApplication BuildConfidentialClientApplication(string normalizedAuthority)
+    {
+        var builder = ConfidentialClientApplicationBuilder.Create(_settings.ApplicationInfo.ApplicationId)
+            .WithAuthority(normalizedAuthority);
+
+        if (_settings.UseCertificate)
         {
-            // Append tenant to authority and remove common. 
-            if (authority.ToLower().Contains("common"))
-            {
-                var authorityUri = new Uri(authority);
-                authority = String.Format("https://{0}/{1}", authorityUri.Host, tenant);
-            }
-
-            IConfidentialClientApplication app;
-
-            if (doCertAuth)
-            {
-                Console.WriteLine("Performing certificate based auth with {0}", certThumb);
-
-                // Read cert from local machine
-                var certificate = ReadCertificateFromStore(certThumb);
-                // Use cert to build ClientAssertionCertificate
-                app = ConfidentialClientApplicationBuilder.Create(appInfo.ApplicationId)
-                .WithCertificate(certificate)
-                .WithRedirectUri(redirectUri)
-                .Build();
-            }
-
-            else
-            {
-                Console.WriteLine("Performing client secret based auth.");
-                app = ConfidentialClientApplicationBuilder.Create(appInfo.ApplicationId)
-                .WithClientSecret(clientSecret)
-                .WithRedirectUri(redirectUri)
-                .Build();
-                
-            }
-            
-            string[] scopes = new string[] { resource[resource.Length - 1].Equals('/') ? $"{resource}.default" : $"{resource}/.default" };
-
-            AuthenticationResult authResult = app.AcquireTokenForClient(scopes)
-                .WithAuthority(authority)
-                .ExecuteAsync()
-                .GetAwaiter()
-                .GetResult();
-            // Return the token. The token is sent to the resource.
-            return authResult.AccessToken;
+            builder.WithCertificate(_certificate.Value);
+        }
+        else
+        {
+            builder.WithClientSecret(_settings.ClientSecret);
         }
 
-        private static X509Certificate2 ReadCertificateFromStore(string thumbprint)
+        if (_httpClientFactory is not null)
         {
-            X509Certificate2 cert = null;
-            X509Store store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
-            store.Open(OpenFlags.ReadOnly);
-            X509Certificate2Collection certCollection = store.Certificates;
-
-            // Find unexpired certificates.
-            X509Certificate2Collection currentCerts = certCollection.Find(X509FindType.FindByTimeValid, DateTime.Now, false);
-
-            // From the collection of unexpired certificates, find the ones with the correct name.
-            X509Certificate2Collection signingCert = currentCerts.Find(X509FindType.FindByThumbprint, thumbprint, false);
-
-            // Return the first certificate in the collection, has the right name and is current.
-            cert = signingCert.OfType<X509Certificate2>().OrderByDescending(c => c.NotBefore).FirstOrDefault();
-            store.Close();
-            return cert;
+            builder.WithHttpClientFactory(_httpClientFactory);
         }
 
+        return builder.Build();
+    }
 
+    internal static string NormalizeAuthority(string authority, string tenant)
+    {
+        if (string.IsNullOrWhiteSpace(authority) ||
+            !Uri.TryCreate(authority, UriKind.Absolute, out var authorityUri))
+        {
+            throw new InvalidOperationException("The authority challenge must be an absolute URI.");
+        }
 
+        if (!string.Equals(authorityUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
+            !authorityUri.IsDefaultPort)
+        {
+            throw new InvalidOperationException("The authority challenge must use HTTPS on the default port.");
+        }
+
+        if (!string.IsNullOrEmpty(authorityUri.UserInfo) ||
+            !string.IsNullOrEmpty(authorityUri.Query) ||
+            !string.IsNullOrEmpty(authorityUri.Fragment))
+        {
+            throw new InvalidOperationException("The authority challenge contains unsupported URI components.");
+        }
+
+        var path = authorityUri.GetComponents(UriComponents.Path, UriFormat.Unescaped).Trim('/');
+        if (path.Contains('/', StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("The authority challenge path is not supported.");
+        }
+
+        var normalizedTenant = SampleSettings.NormalizeTenant(tenant);
+        var normalizedHost = authorityUri.IdnHost.ToLowerInvariant();
+        return $"https://{normalizedHost}/{normalizedTenant}";
+    }
+
+    internal static string NormalizeResource(string resource)
+    {
+        if (string.IsNullOrWhiteSpace(resource) ||
+            !Uri.TryCreate(resource, UriKind.Absolute, out var resourceUri))
+        {
+            throw new InvalidOperationException("The resource challenge must be an absolute URI.");
+        }
+
+        if (!string.Equals(resourceUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
+            !resourceUri.IsDefaultPort)
+        {
+            throw new InvalidOperationException("The resource challenge must use HTTPS on the default port.");
+        }
+
+        if (!string.IsNullOrEmpty(resourceUri.UserInfo) ||
+            !string.IsNullOrEmpty(resourceUri.Query) ||
+            !string.IsNullOrEmpty(resourceUri.Fragment))
+        {
+            throw new InvalidOperationException("The resource challenge contains unsupported URI components.");
+        }
+
+        if (resourceUri.AbsolutePath != "/")
+        {
+            throw new InvalidOperationException("The resource challenge path is not supported.");
+        }
+
+        var normalizedHost = resourceUri.IdnHost.ToLowerInvariant();
+        return $"https://{normalizedHost}";
+    }
+
+    internal static string BuildDefaultScope(string resource)
+    {
+        return $"{NormalizeResource(resource)}/.default";
+    }
+
+    internal static void ValidateCertificate(X509Certificate2 certificate, DateTime now)
+    {
+        if (!certificate.HasPrivateKey)
+        {
+            throw new InvalidOperationException("The configured certificate does not have an accessible private key.");
+        }
+
+        if (now < certificate.NotBefore || now > certificate.NotAfter)
+        {
+            throw new InvalidOperationException("The configured certificate is expired or not yet valid.");
+        }
+    }
+
+    private static X509Certificate2 LoadCertificateFromStore(string thumbprint)
+    {
+        using var store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
+        store.Open(OpenFlags.ReadOnly);
+
+        X509Certificate2? selected = null;
+        try
+        {
+            foreach (var certificate in store.Certificates)
+            {
+                if (selected is null && string.Equals(certificate.Thumbprint, thumbprint, StringComparison.OrdinalIgnoreCase))
+                {
+                    selected = certificate;
+                }
+                else
+                {
+                    certificate.Dispose();
+                }
+            }
+
+            if (selected is null)
+            {
+                throw new InvalidOperationException("The configured certificate was not found in CurrentUser\\My.");
+            }
+
+            ValidateCertificate(selected, DateTime.Now);
+            return selected;
+        }
+        catch
+        {
+            selected?.Dispose();
+            throw;
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _clients.Clear();
+        if (_certificate.IsValueCreated)
+        {
+            _certificate.Value.Dispose();
+        }
     }
 }

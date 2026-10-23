@@ -3,6 +3,12 @@
 ##
 ## Get latest from https://github.com/github/gitignore/blob/master/VisualStudio.gitignore
 
+# Local sample configuration, SDK policy caches, and private-key files
+appsettings.local.json
+mip_data/
+*.pem
+*.key
+
 # User-specific files
 *.suo
 *.user

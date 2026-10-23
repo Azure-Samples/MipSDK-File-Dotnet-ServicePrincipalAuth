@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'release/**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-publish:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      TESTINGPLATFORM_TELEMETRY_OPTOUT: '1'
+      MIP_TEST_RUN: 'false'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+      - name: Restore and audit all dependencies
+        run: dotnet restore .\MipSdkDotNetFileSPA.sln -p:NuGetAudit=true -p:NuGetAuditMode=all -p:NuGetAuditLevel=low
+      - name: Build
+        run: dotnet build .\MipSdkDotNetFileSPA.sln --configuration Release --no-restore
+      - name: Unit and native tests with coverage
+        run: dotnet test --solution .\MipSdkDotNetFileSPA.sln --configuration Release --no-build --filter 'Category!=Integration' --coverlet --coverlet-include '[MipSdkDotNetQuickstart]*' --coverlet-output-format cobertura --coverlet-threshold 80 --coverlet-threshold-type line --results-directory .\TestResults
+      - name: Dependency advisory report
+        run: dotnet list .\MipSdkDotNetFileSPA.sln package --vulnerable --include-transitive --no-restore
+      - name: Publish Windows x64
+        run: dotnet publish .\mip-sdk-dotnet-file-SPA\MipSdkDotNetFileSPA.csproj --configuration Release --no-restore --runtime win-x64 --self-contained false --output .\artifacts\publish
+      - name: Verify published CLI and native SDK
+        run: pwsh -NoProfile -File .\scripts\Test-Publish.ps1 -PublishDirectory .\artifacts\publish
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: test-results
+          path: TestResults
+          if-no-files-found: warn
+          retention-days: 14
